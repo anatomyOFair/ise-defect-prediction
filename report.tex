@@ -1,0 +1,219 @@
+\documentclass[10pt, a4paper]{article}
+
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[margin=0.8in]{geometry}
+\usepackage{setspace}
+\singlespacing
+\usepackage{booktabs}
+\usepackage{tabularx}
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{\z@}{0.8em}{0.1em}{\normalfont\Large\bfseries}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}{0.6em}{0.05em}{\normalfont\large\bfseries}}
+\makeatother
+
+\begin{document}
+
+\begin{center}
+{\Large\bfseries ISE Coursework -- Software Defect Prediction Using Ensemble Learning}\\[0.4em]
+Lu Min\\[0.2em]
+27 April 2026
+\end{center}
+\vspace{0.3em}
+
+\section{Introduction}
+
+Software defects are an inevitable part of the development process, and their consequences range from minor inconveniences to catastrophic system failures. The cost of fixing a defect increases significantly the later it is discovered in the software development lifecycle; a bug caught in production can cost up to 100 times more to fix than one caught during design (Boehm and Basili, 2001). As modern software systems grow in scale and complexity, manual code inspection alone is insufficient to identify all fault-prone components before release.
+
+Software defect prediction (SDP) addresses this challenge by using machine learning models to classify software modules as defective or clean based on measurable properties of the source code. These properties, known as static code metrics, include McCabe's cyclomatic complexity, Halstead's software science measures, and lines of code (LOC), among others. By analysing these metrics, SDP models can flag high-risk modules early, allowing development teams to prioritise their testing and review efforts where defects are most likely to occur.
+
+A variety of machine learning techniques have been applied to SDP, ranging from simple linear models such as Logistic Regression to more complex approaches including Support Vector Machines, deep learning, and ensemble methods. While Logistic Regression provides a strong interpretable baseline, it assumes linear relationships between code metrics and defect-proneness, an assumption that often does not hold in practice. This report presents a defect prediction tool based on ensemble learning, specifically Random Forest and XGBoost, which can capture non-linear interactions between static code metrics. The tool is evaluated against a Logistic Regression baseline across multiple NASA and open-source datasets from the PROMISE repository, using repeated random splits and the Wilcoxon signed-rank test for statistical comparison.
+
+\section{Related Work}
+
+Research in software defect prediction has evolved considerably over the past two decades, progressing from simple statistical models to sophisticated machine learning and deep learning approaches. This section reviews key contributions that inform the design of the tool presented in this report.
+
+\subsection{Within-Project Defect Prediction}
+
+Kim, Whitehead, and Zhang (2008) proposed a change-level defect prediction approach using Support Vector Machines (SVM). Their method analyses properties of individual code changes, such as the complexity of the diff and the experience of the developer, to predict whether a given commit will introduce a defect. The approach achieved strong results within individual projects, demonstrating that machine learning can effectively learn project-specific defect patterns. However, it relies on change history data that is not always available, and models trained on one project do not necessarily transfer well to others due to differences in development practices, coding standards, and metric distributions.
+
+\subsection{Cross-Project Defect Prediction}
+
+A major limitation of within-project prediction is the need for sufficient labelled training data from the target project. Nam and Kim (2015) addressed this with Heterogeneous Defect Prediction (HDP), a technique that enables training on one project and predicting on another, even when the two projects use different metric sets. HDP works by matching metrics across projects based on their statistical distributions, then building a transfer model from the matched features. This is particularly valuable for new projects that lack defect history. However, the metric matching process introduces complexity and the prediction performance can vary considerably depending on how well the source and target project metrics align.
+
+\subsection{Deep Learning Representations}
+
+Wang, Liu, and Tan (2016) took a fundamentally different approach by using Deep Belief Networks (DBN) to automatically learn semantic representations of source code for defect prediction. Rather than relying on hand-crafted static metrics, their model learns features directly from token vectors extracted from abstract syntax trees. This approach can capture deeper structural patterns in code that traditional metrics miss. The trade-off is that DBN models are computationally expensive to train, require large volumes of training data to be effective, and act as black boxes, making it difficult for developers to understand why a particular module was flagged as defective.
+
+\subsection{Explainable Defect Prediction}
+
+Addressing the interpretability gap, Pornprasit et al. (2021) introduced PyExplainer, a tool that provides local rule-based explanations for defect predictions. Given a prediction from any black-box model, PyExplainer generates human-readable rules that describe why a specific module was classified as defective. This work highlights a growing concern in the field: prediction accuracy alone is insufficient if developers cannot act on the results. While PyExplainer advances explainability, its primary contribution is in post-hoc explanation rather than improving the underlying prediction performance.
+
+\subsection{Summary and Positioning}
+
+Table 1 summarises the key approaches and their trade-offs.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l X X}
+\toprule
+\textbf{Approach} & \textbf{Strengths} & \textbf{Limitations} \\
+\midrule
+SVM on change metrics (Kim et al., 2008) & Strong within-project accuracy & Requires change history; poor cross-project transfer \\
+HDP cross-project (Nam and Kim, 2015) & Enables prediction without target project history & Complex metric matching; variable performance \\
+DBN learned features (Wang et al., 2016) & Captures deep code patterns automatically & Black box; data-hungry; slow to train \\
+PyExplainer (Pornprasit et al., 2021) & Human-readable explanations & Focuses on explainability, not prediction improvement \\
+Logistic Regression baseline & Simple; interpretable; well-established & Assumes linear relationships between metrics and defects \\
+\bottomrule
+\end{tabularx}
+\caption{Summary of existing defect prediction approaches.}
+\end{table}
+
+The approach presented in this report uses ensemble methods, specifically Random Forest and XGBoost, to address the limitations of the Logistic Regression baseline. These models can capture non-linear interactions between static code metrics without requiring change history, deep learning infrastructure, or complex cross-project metric matching. They also offer built-in feature importance measures, providing a degree of interpretability that pure black-box models lack.
+
+\section{Solution}
+
+The proposed tool addresses software defect prediction as a binary classification task. Given a set of static code metrics extracted from a software module, the tool predicts whether that module is defective (1) or clean (0). Two ensemble learning models are implemented: Random Forest and XGBoost, both evaluated against a Logistic Regression baseline.
+
+\textbf{Random Forest} constructs an ensemble of decision trees, each trained on a bootstrap sample of the training data with a random subset of features considered at each split. The final prediction is determined by majority vote. This approach captures non-linear interactions between code metrics without requiring feature scaling, and handles class imbalance directly through the \texttt{class\_weight=`balanced'} parameter, which adjusts sample weights inversely proportional to class frequencies.
+
+\textbf{XGBoost} is a gradient-boosted tree ensemble that builds trees sequentially, with each tree correcting the residuals of the previous ensemble. Class imbalance is handled via the \texttt{scale\_pos\_weight} parameter, set to the ratio of negative to positive samples in the training set. XGBoost tends to be more robust than Random Forest when the data contains noise or redundant features.
+
+Both models provide feature importance scores, allowing practitioners to identify which code metrics are the strongest predictors of defects. This is a practical advantage over black-box approaches such as Deep Belief Networks (Wang et al., 2016), which do not offer this level of interpretability.
+
+The tool also includes a command-line prediction script (\texttt{predict.py}) that trains on all available datasets and outputs defect predictions and probabilities for new module metrics provided as a CSV file.
+
+\section{Experimental Setup}
+
+\subsection{Datasets}
+
+Experiments were conducted on four open-source datasets from the PROMISE repository (Jureczko and Madeyski, 2010), all using CK object-oriented metrics as features. Table 2 summarises the datasets used.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l r r r}
+\toprule
+\textbf{Dataset} & \textbf{Instances} & \textbf{Features} & \textbf{Defect Rate (\%)} \\
+\midrule
+ant-1.7   & 745  & 20 & 22.4 \\
+camel-1.6 & 965  & 20 & 19.5 \\
+ivy-2.0   & 352  & 20 & 11.1 \\
+jedit-4.3 & 492  & 20 &  2.0 \\
+\bottomrule
+\end{tabularx}
+\caption{PROMISE repository datasets used in experiments.}
+\end{table}
+
+Features include CK metrics: WMC (weighted methods per class), DIT (depth of inheritance tree), NOC (number of children), CBO (coupling between objects), RFC (response for a class), LCOM (lack of cohesion in methods), LOC (lines of code), and several others capturing coupling, cohesion, and complexity.
+
+\subsection{Preprocessing}
+
+Metadata columns (project name, version) were removed prior to training. Missing values were imputed with column medians. The target column (\texttt{bug}) was binarised: any non-zero value was treated as defective. Feature scaling (StandardScaler) was applied only for Logistic Regression.
+
+\subsection{Evaluation Protocol}
+
+A 70/30 stratified train/test split was repeated 30 times with different random seeds (0--29). Stratification preserved the defect rate across splits. Models were independently retrained on each split. Evaluation metrics were Precision, Recall, and F1-score on the defective class, reported as mean $\pm$ standard deviation across 30 repeats. The Wilcoxon signed-rank test (two-sided, $\alpha = 0.05$) was used to assess whether F1 differences between each ensemble model and the baseline were statistically significant.
+
+\section{Experiments and Results}
+
+\subsection{F1 Performance}
+
+Table 3 reports mean F1-score ($\pm$ standard deviation) across 30 repeats per dataset and model.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l l r r r}
+\toprule
+\textbf{Dataset} & \textbf{Model} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} \\
+\midrule
+ant-1.7   & LR  & 0.500 $\pm$ 0.044 & 0.677 $\pm$ 0.061 & 0.574 $\pm$ 0.043 \\
+ant-1.7   & RF  & 0.675 $\pm$ 0.070 & 0.445 $\pm$ 0.069 & 0.532 $\pm$ 0.056 \\
+ant-1.7   & XGB & 0.566 $\pm$ 0.043 & 0.528 $\pm$ 0.065 & 0.543 $\pm$ 0.037 \\
+\midrule
+camel-1.6 & LR  & 0.313 $\pm$ 0.034 & 0.565 $\pm$ 0.076 & 0.402 $\pm$ 0.043 \\
+camel-1.6 & RF  & 0.466 $\pm$ 0.131 & 0.148 $\pm$ 0.049 & 0.222 $\pm$ 0.067 \\
+camel-1.6 & XGB & 0.384 $\pm$ 0.059 & 0.340 $\pm$ 0.063 & 0.359 $\pm$ 0.056 \\
+\midrule
+ivy-2.0   & LR  & 0.280 $\pm$ 0.059 & 0.542 $\pm$ 0.159 & 0.367 $\pm$ 0.082 \\
+ivy-2.0   & RF  & 0.412 $\pm$ 0.260 & 0.131 $\pm$ 0.081 & 0.189 $\pm$ 0.109 \\
+ivy-2.0   & XGB & 0.367 $\pm$ 0.116 & 0.336 $\pm$ 0.106 & 0.345 $\pm$ 0.096 \\
+\midrule
+jedit-4.3 & LR  & 0.057 $\pm$ 0.030 & 0.522 $\pm$ 0.272 & 0.102 $\pm$ 0.053 \\
+jedit-4.3 & RF  & 0.254 $\pm$ 0.157 & 0.356 $\pm$ 0.213 & 0.287 $\pm$ 0.164 \\
+jedit-4.3 & XGB & 0.194 $\pm$ 0.117 & 0.367 $\pm$ 0.221 & 0.248 $\pm$ 0.145 \\
+\bottomrule
+\end{tabularx}
+\caption{Mean $\pm$ std of Precision, Recall, and F1 across 30 repeated splits.}
+\end{table}
+
+\subsection{Statistical Significance}
+
+Table 4 reports Wilcoxon signed-rank test results comparing each ensemble model against the LR baseline on F1 scores across 30 repeats. A result marked * indicates a statistically significant difference ($p < 0.05$).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l l r r l}
+\toprule
+\textbf{Dataset} & \textbf{Comparison} & \textbf{Statistic} & \textbf{p-value} & \textbf{Significant} \\
+\midrule
+ant-1.7   & RF vs LR  & 51.0  & 0.0001 & * \\
+ant-1.7   & XGB vs LR & 65.0  & 0.0003 & * \\
+camel-1.6 & RF vs LR  & 0.0   & <0.0001 & * \\
+camel-1.6 & XGB vs LR & 55.0  & 0.0001 & * \\
+ivy-2.0   & RF vs LR  & 8.0   & <0.0001 & * \\
+ivy-2.0   & XGB vs LR & 156.0 & 0.1836 &   \\
+jedit-4.3 & RF vs LR  & 3.0   & <0.0001 & * \\
+jedit-4.3 & XGB vs LR & 7.0   & <0.0001 & * \\
+\bottomrule
+\end{tabularx}
+\caption{Wilcoxon signed-rank test results (two-sided, $\alpha = 0.05$).}
+\end{table}
+
+\subsection{Discussion}
+
+The results reveal a mixed picture. On datasets with moderate defect rates (ant-1.7 at 22.4\%, camel-1.6 at 19.5\%), LR achieves higher F1 than RF and competitive F1 with XGB. This is primarily driven by LR's higher recall: the balanced class weights cause it to predict defective more aggressively, recovering more true positives at the cost of precision. RF achieves higher precision but substantially lower recall in these datasets.
+
+The most striking result is on jedit-4.3, which has a very low defect rate of 2.0\%. LR achieves only 0.102 F1 due to near-zero precision on this severely imbalanced dataset, while RF (0.287) and XGB (0.248) both substantially outperform it. This demonstrates the core advantage of ensemble methods: they better handle severe class imbalance, which is the realistic scenario in most production codebases.
+
+XGB achieves statistically significant improvement over LR in 7 of 8 comparisons. RF significantly outperforms LR in all 4 datasets.
+
+\section{Reflection}
+
+\subsection{Limitations}
+
+Several limitations constrain the generalisability of these results. First, the datasets use CK object-oriented metrics, which are computed at the class level and specific to Java. The tool may not generalise directly to procedural languages or function-level analysis. Second, the datasets are from open-source projects collected between 2005 and 2010; defect patterns in modern software may differ. Third, the experiments are within-project: the model is trained and tested on the same project, meaning predictions for entirely new projects would be unreliable without retraining.
+
+Additionally, no hyperparameter tuning was performed. Default values for \texttt{n\_estimators=100} and other parameters were used across all datasets. Cross-validated hyperparameter search (e.g., grid search) could improve performance, particularly for XGBoost which is sensitive to its learning rate and tree depth.
+
+\subsection{Potential Improvements}
+
+A natural extension would be to implement cross-project prediction using the Heterogeneous Defect Prediction framework (Nam and Kim, 2015), enabling the tool to generalise to projects without defect history. SMOTE (Synthetic Minority Over-sampling Technique) could be applied to address class imbalance more aggressively than class weights alone. Finally, integrating SHAP (SHapley Additive exPlanations) values as a feature importance mechanism would provide richer, instance-level explanations comparable to PyExplainer (Pornprasit et al., 2021).
+
+\section{Conclusion}
+
+This report presented a software defect prediction tool based on Random Forest and XGBoost, evaluated against a Logistic Regression baseline on four PROMISE repository datasets. The results show that ensemble methods significantly outperform LR in terms of F1-score in 7 of 8 Wilcoxon-tested comparisons, with the advantage most pronounced on severely imbalanced datasets such as jedit-4.3 where LR fails almost entirely. XGBoost provides a strong balance between precision and recall, while Random Forest achieves higher precision at the cost of recall. The tool is implemented as a reusable Python package with a command-line interface for both training and prediction, meeting the practical goal of enabling developers to identify fault-prone modules early in the software development lifecycle.
+
+\section*{References}
+
+\noindent Boehm, B. and Basili, V. R. (2001) ``Software Defect Reduction Top 10 List.'' \textit{Computer}, 34(1), pp. 135--137.
+
+\vspace{0.5em}
+\noindent Kim, S., Whitehead, E. J. and Zhang, Y. (2008) ``Classifying Software Changes: Clean or Buggy?'' \textit{IEEE Transactions on Software Engineering}, 34(2), pp. 181--196.
+
+\vspace{0.5em}
+\noindent Nam, J. and Kim, S. (2015) ``Heterogeneous Defect Prediction.'' \textit{Proceedings of the 10th Joint Meeting on Foundations of Software Engineering (ESEC/FSE)}, pp. 508--519.
+
+\vspace{0.5em}
+\noindent Pornprasit, C., Tantithamthavorn, C. K., Jiarpakdee, J., Fu, M. and Treude, C. (2021) ``PyExplainer: Explaining the Predictions of Just-In-Time Defect Models.'' \textit{Proceedings of the 36th IEEE/ACM International Conference on Automated Software Engineering (ASE)}, pp. 407--418.
+
+\vspace{0.5em}
+\noindent Wang, S., Liu, T. and Tan, L. (2016) ``Automatically Learning Semantic Features for Defect Prediction.'' \textit{Proceedings of the 38th International Conference on Software Engineering (ICSE)}, pp. 297--308.
+
+\end{document}
