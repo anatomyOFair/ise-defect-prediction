@@ -21,19 +21,29 @@ from utils import load_dataset
 
 warnings.filterwarnings("ignore")
 
-DATASETS = [
-    "data/ant-1.7.csv",
-    "data/camel-1.6.csv",
-    "data/ivy-2.0.csv",
-    "data/jedit-4.3.csv",
-]
+FAMILY_DATASETS = {
+    "promise-ck": [
+        "data/ant-1.7.csv", "data/camel-1.6.csv", "data/ivy-2.0.csv",
+        "data/jedit-4.3.csv", "data/lucene-2.4.csv", "data/poi-3.0.csv",
+        "data/synapse-1.2.csv", "data/xalan-2.6.csv", "data/xerces-1.4.csv",
+        "data/velocity-1.6.csv",
+    ],
+    "aeeem": [
+        "data/aeeem/equinox.csv", "data/aeeem/jdt.csv", "data/aeeem/lucene.csv",
+        "data/aeeem/mylyn.csv", "data/aeeem/pde.csv",
+    ],
+    "nasa": [
+        "data/nasa/cm1.csv", "data/nasa/jm1.csv", "data/nasa/kc1.csv",
+        "data/nasa/mw1.csv", "data/nasa/pc1.csv",
+    ],
+}
 
 
-def train_on_all(model_name: str):
-    """Train a model on the union of all available datasets."""
+def train_on_all(model_name: str, family: str = "promise-ck"):
+    """Train a model on the union of all datasets in the given family."""
     base = os.path.dirname(os.path.dirname(__file__))
     Xs, ys = [], []
-    for path in DATASETS:
+    for path in FAMILY_DATASETS.get(family, FAMILY_DATASETS["promise-ck"]):
         full = os.path.join(base, path)
         if os.path.exists(full):
             X, y = load_dataset(full)
@@ -60,8 +70,8 @@ def train_on_all(model_name: str):
     return model, X_all.columns.tolist()
 
 
-def predict(input_path: str, model_name: str) -> None:
-    model, train_cols = train_on_all(model_name)
+def predict(input_path: str, model_name: str, family: str = "promise-ck") -> None:
+    model, train_cols = train_on_all(model_name, family)
 
     df = pd.read_csv(input_path)
     df.columns = [c.strip().lower() for c in df.columns]
@@ -93,5 +103,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", required=True, help="CSV file with code metrics")
     parser.add_argument("--model", choices=["lr", "rf", "xgb"], default="rf",
                         help="Model to use: lr (Logistic Regression), rf (Random Forest), xgb (XGBoost)")
+    parser.add_argument("--family", choices=["promise-ck", "aeeem", "nasa"], default="promise-ck",
+                        help="Dataset family to train on (default: promise-ck)")
     args = parser.parse_args()
-    predict(args.input, args.model)
+    predict(args.input, args.model, args.family)

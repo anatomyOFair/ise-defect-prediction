@@ -21,16 +21,21 @@ def load_dataset(path: str) -> tuple[pd.DataFrame, pd.Series]:
     drop = [c for c in df.columns if c in META_COLS or c.startswith("name")]
     df = df.drop(columns=drop, errors="ignore")
 
-    # Find target column (bug / bugs / defects)
+    # Find target column (bug / bugs / defects / defective / label)
     target_col = None
-    for candidate in ["bug", "bugs", "defects", "defect"]:
+    for candidate in ["bug", "bugs", "defects", "defect", "defective", "label"]:
         if candidate in df.columns:
             target_col = candidate
             break
     if target_col is None:
         raise ValueError(f"No target column found in {path}. Columns: {df.columns.tolist()}")
 
-    y = (df[target_col] > 0).astype(int)
+    # Binarise: handle Y/N strings (NASA), 'buggy'/'clean' strings, or numeric
+    if not pd.api.types.is_numeric_dtype(df[target_col]):
+        val = df[target_col].str.lower().str.strip()
+        y = val.isin(["y", "yes", "true", "1", "buggy"]).astype(int)
+    else:
+        y = (df[target_col] > 0).astype(int)
     X = df.drop(columns=[target_col])
 
     # Median imputation for missing values
