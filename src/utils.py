@@ -14,8 +14,9 @@ def load_dataset(path: str) -> tuple[pd.DataFrame, pd.Series]:
     """Load a PROMISE CSV, drop metadata, binarise target."""
     df = pd.read_csv(path)
 
-    # Normalise column names
-    df.columns = [c.strip().lower() for c in df.columns]
+    # Normalise column names — strip, lowercase, replace non-alphanumeric with _ (LightGBM safe)
+    import re
+    df.columns = [re.sub(r'[^a-zA-Z0-9_]', '_', c.strip().lower()) for c in df.columns]
 
     # Drop metadata columns
     drop = [c for c in df.columns if c in META_COLS or c.startswith("name")]

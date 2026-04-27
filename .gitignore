@@ -1,11 +1,22 @@
-# PDFs
-*.pdf
+# LaTeX sources — only the compiled PDFs are needed in the repo
+*.tex
 
 # Markdown (except README)
 GUIDE.md
 plan.md
 replication.md
 report.md
+
+# Test artifacts produced by predict.py runs against examples/
+examples/*_predictions.csv
+
+# Internal dev/reference files (not deliverables)
+RESULTS_REFERENCE.txt
+
+# Outdated / debug result artifacts
+results/f1_promise_ck.pdf
+results/f1_promise_ck.png
+results/shap_importance_fig_preview.png
 
 # LaTeX build artifacts
 *.aux

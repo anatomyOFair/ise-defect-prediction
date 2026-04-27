@@ -1,11 +1,12 @@
 """CLI prediction tool — given a CSV of code metrics, output defect predictions.
 
 Usage:
-    python src/predict.py --input my_module_metrics.csv --model rf
-    python src/predict.py --input my_module_metrics.csv --model xgb
-    python src/predict.py --input my_module_metrics.csv --model lr
+    python src/predict.py --input my_module_metrics.csv --model xgb-hp
+    python src/predict.py --input my_module_metrics.csv --model rf-hp --family aeeem
 
-The tool trains on all available datasets and predicts on the input file.
+Supported models: lr, rf, xgb, lgb, stacking, rf-hp, xgb-hp, lgb-hp, rf-smote.
+The tool trains the chosen model on all datasets in the chosen family, then
+predicts on the input file.
 """
 
 import argparse
@@ -16,8 +17,12 @@ import warnings
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(__file__))
-from models import make_lr, make_rf, make_xgb
+from models import (make_lr, make_rf, make_xgb, make_lgbm, make_stacking,
+                    make_rf_tuned, make_xgb_tuned, make_lgbm_tuned, make_rf_smote)
 from utils import load_dataset
+
+MODEL_CHOICES = ["lr", "rf", "xgb", "lgb", "stacking",
+                 "rf-hp", "xgb-hp", "lgb-hp", "rf-smote"]
 
 warnings.filterwarnings("ignore")
 
@@ -59,22 +64,31 @@ def train_on_all(model_name: str, family: str = "promise-ck"):
     neg = (y_all == 0).sum()
     spw = neg / pos if pos > 0 else 1.0
 
-    if model_name == "rf":
-        model = make_rf()
-    elif model_name == "xgb":
-        model = make_xgb(spw)
-    else:
-        model = make_lr()
+    makers = {
+        "lr":       lambda: make_lr(),
+        "rf":       lambda: make_rf(),
+        "xgb":      lambda: make_xgb(spw),
+        "lgb":      lambda: make_lgbm(spw),
+        "stacking": lambda: make_stacking(spw),
+        "rf-hp":    lambda: make_rf_tuned(family),
+        "xgb-hp":   lambda: make_xgb_tuned(family, spw),
+        "lgb-hp":   lambda: make_lgbm_tuned(family, spw),
+        "rf-smote": lambda: make_rf_smote(),
+    }
+    if model_name not in makers:
+        raise ValueError(f"Unknown model '{model_name}'. Choose from: {', '.join(MODEL_CHOICES)}")
+    model = makers[model_name]()
 
     model.fit(X_all, y_all)
     return model, X_all.columns.tolist()
 
 
 def predict(input_path: str, model_name: str, family: str = "promise-ck") -> None:
+    import re
     model, train_cols = train_on_all(model_name, family)
 
     df = pd.read_csv(input_path)
-    df.columns = [c.strip().lower() for c in df.columns]
+    df.columns = [re.sub(r'[^a-zA-Z0-9_]', '_', c.strip().lower()) for c in df.columns]
 
     # Keep only columns the model was trained on
     missing = [c for c in train_cols if c not in df.columns]
@@ -101,8 +115,8 @@ def predict(input_path: str, model_name: str, family: str = "promise-ck") -> Non
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Predict software defects from code metrics.")
     parser.add_argument("--input", required=True, help="CSV file with code metrics")
-    parser.add_argument("--model", choices=["lr", "rf", "xgb"], default="rf",
-                        help="Model to use: lr (Logistic Regression), rf (Random Forest), xgb (XGBoost)")
+    parser.add_argument("--model", choices=MODEL_CHOICES, default="xgb-hp",
+                        help="Model to use. Default is xgb-hp (best within-project performer).")
     parser.add_argument("--family", choices=["promise-ck", "aeeem", "nasa"], default="promise-ck",
                         help="Dataset family to train on (default: promise-ck)")
     args = parser.parse_args()
